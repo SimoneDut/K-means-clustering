@@ -1,0 +1,176 @@
+---
+title: "K-means clustering"
+author: "Simone"
+date: "March 14, 2020"
+output: ioslides_presentation
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width = 8, fig.height = 5)
+```
+
+## Purpose of this App
+
+This App allows users to generate random datasets composed of up to 5 clusters, each one normally distributed across 3 dimensions.  
+  
+Additionally, it is possible to run a 'K-means clustering' algortihm on the datasets.  
+  
+The App can be tested here:  
+  
+- [https://simonedut.shinyapps.io/K-means-clustering](https://simonedut.shinyapps.io/K-means-clustering)
+  
+While all the code is available here:  
+  
+- [https://github.com/SimoneDut/K-means-clustering](https://github.com/SimoneDut/K-means-clustering)
+
+## Dataset generation (1)
+
+A dataset will be generated at first, by setting a number of parameters.  
+  
+Each point in the dataset will be part of a cluster in a 3 dimensional space, and each dimension of the cluster will be normally distributed using the following R expression:
+
+```{r chunk_1, echo = TRUE, eval = FALSE}
+cluster_dimension <- rnorm(cluster_elements,
+                           mean = cluster_mean,
+                           sd = cluster_standard_deviation)
+```
+
+## Dataset generation (2)
+
+Once the dataset is generated, it will be displayed as follows:
+
+```{r chunk_2}
+library(shiny)
+library(plotly)
+library(RColorBrewer)
+
+updated <- list()
+data <- list()
+for (i in 1:3) {
+  for (l in c("x", "y", "z")) {
+    updated[[paste(l, i, sep = "")]] <- c(30, 50, 70)[i]
+    updated[[paste("s", l, i, sep = "")]] <- 10
+  }
+}
+updated$c <- 3
+updated$m <- 100
+data_app <- data.frame()
+for (i in 1:updated$c) {
+  temp <- list()
+  for (l in c("x", "y", "z")) {
+    temp[[l]] <- rnorm(updated$m,
+                       mean = updated[[paste(l, i, sep = "")]],
+                       sd = updated[[paste("s", l, i, sep = "")]])
+  }
+  temp[["c"]] <- rep(i, updated$m)
+  temp[["k"]] <- rep(0, updated$m)
+  data_app <- rbind(data_app, data.frame(temp))
+}
+data$x <- data_app$x
+data$y <- data_app$y
+data$z <- data_app$z
+data$c <- data_app$c
+data$s <- ifelse(data_app$c == 5, 10, 12)
+data$k <- data_app$k
+```
+
+```{r chunk_3}
+colors <- c("black", brewer.pal(9, "Set1"), "lightblue")
+n_colors <- dim(table(data$k))
+if (min(data$k) == 0) {
+  colors <- colors[1:n_colors]
+} else {
+  colors <- colors[2:(n_colors+1)]
+}
+div(plot_ly(x = data$x, y = data$y, z = data$z,
+            type = "scatter3d",
+            mode = "markers",
+            color = as.factor(data$k),
+            colors = colors,
+            symbol = as.factor(data$c),
+            symbols = c("circle", "cross", "square", "diamond", "x"),
+            size = data$s,
+            width = 400, height = 400) %>%
+      layout(scene = list(xaxis = list(title = "Average transaction value", range = c(0, 100)),
+                          yaxis = list(title = "Transactions per year", range = c(0, 100)),
+                          zaxis = list(title = "Customer seniority", range = c(0, 100)),
+                          camera = list(eye = list(x = 1.6,
+                                                   y = 1.6,
+                                                   z = 0.5))),
+             showlegend = FALSE),
+    align = "center")
+```
+
+## Results after running the algorithm
+
+Clusters will be marked using different colors:
+
+```{r chunk_4}
+data_app <- data.frame(x = data$x, y = data$y, z = data$z, k = data$k)
+random_init_indices <- sample(1:nrow(data_app), 3)
+centroids <- list()
+for (i in 1:3) {
+  centroids[[i]] <- data.frame(x = data_app$x[random_init_indices[i]],
+                               y = data_app$y[random_init_indices[i]],
+                               z = data_app$z[random_init_indices[i]])
+}
+distances_app <- list()
+for (i in 1:20) {
+  ## Calculate the nearest centroid for each point (Assignment step)
+  for (j in 1:3) {
+    distances_app[[paste("dist", j, sep = "_")]] <- sqrt((data_app$x - centroids[[j]]$x[1])^2 +
+                                                         (data_app$y - centroids[[j]]$y[1])^2 +
+                                                         (data_app$z - centroids[[j]]$z[1])^2)
+  }
+  if (class(distances_app) == "list") { distances_app <- data.frame(distances_app) }
+  data_app$k <- apply(distances_app, 1, which.min)
+  ## Recalculate the position of the centroids (Update step)
+  lost_centroids <- integer(0)
+  for (j in 1:3) {
+    nearest_points <- data_app[data_app$k == j,]
+    n_points <- dim(nearest_points)[1]
+    if (n_points > 0) {
+      centroids[[j]] <- rbind(data.frame(x = sum(nearest_points$x) / n_points,
+                                         y = sum(nearest_points$y) / n_points,
+                                         z = sum(nearest_points$z) / n_points),
+                              centroids[[j]])
+    } else { lost_centroids <- c(lost_centroids, j) }
+    }
+  ## Reinitialize lost centroids
+  random_init_indices <- sample(1:nrow(data_app), length(lost_centroids))
+  for (j in lost_centroids) {
+    centroids[[j]] <- rbind(data.frame(x = data_app$x[random_init_indices[j]],
+                                       y = data_app$y[random_init_indices[j]],
+                                       z = data_app$z[random_init_indices[j]]),
+                            centroids[[j]])
+  }
+}
+data$k <- data_app$k
+```
+
+```{r chunk_5, fig.width = 2, fig.height = 2, fig.align = "center"}
+colors <- c("black", brewer.pal(9, "Set1"), "lightblue")
+n_colors <- dim(table(data$k))
+if (min(data$k) == 0) {
+  colors <- colors[1:n_colors]
+} else {
+  colors <- colors[2:(n_colors+1)]
+}
+div(plot_ly(x = data$x, y = data$y, z = data$z,
+            type = "scatter3d",
+            mode = "markers",
+            color = as.factor(data$k),
+            colors = colors,
+            symbol = as.factor(data$c),
+            symbols = c("circle", "cross", "square", "diamond", "x"),
+            size = data$s,
+            width = 400, height = 400) %>%
+      layout(scene = list(xaxis = list(title = "Average transaction value", range = c(0, 100)),
+                          yaxis = list(title = "Transactions per year", range = c(0, 100)),
+                          zaxis = list(title = "Customer seniority", range = c(0, 100)),
+                          camera = list(eye = list(x = 1.6,
+                                                   y = 1.6,
+                                                   z = 0.5))),
+             showlegend = FALSE),
+    align = "center")
+```
